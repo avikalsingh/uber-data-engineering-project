@@ -19,11 +19,11 @@ from azure.identity import ClientSecretCredential
 from azure.mgmt.eventhub import EventHubManagementClient
 from azure.keyvault.secrets import SecretClient
 
-RESOURCE_GROUP  = "rg-uber"
-NAMESPACE       = "rg-uber-events"
-EVENTHUB        = "ubertopic"
-LOCATION        = "eastus"
-KEY_VAULT_URL   = "https://uber-kv-avikal.vault.azure.net/"
+RESOURCE_GROUP  = _get_secret("AZURE_RESOURCE_GROUP")  or "rg-uber"
+NAMESPACE       = _get_secret("AZURE_EVENTHUB_NAMESPACE") or "rg-uber-events"
+EVENTHUB        = _get_secret("AZURE_EVENTHUB_NAME")      or "ubertopic"
+LOCATION        = _get_secret("AZURE_LOCATION")           or "eastus"
+KEY_VAULT_URL   = _get_secret("AZURE_KEY_VAULT_URL")
 
 # Key Vault secret names — these are the keys stored in the vault
 KV_CONNECTION_STRING          = "CONNECTION-STRING"

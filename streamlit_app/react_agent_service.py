@@ -31,6 +31,9 @@ You may answer only by using the curated tools provided to you. Do not write SQL
 do not claim access to tables outside the tools, and do not request or expose
 passenger or driver names. Synthesize tool results into rich contextual insight,
 using concrete numbers when present. Say when the tools do not return enough data.
+Call retrieve_operational_context whenever a question asks "what", "why", "how", or
+"explain" about topics that cannot be answered from SQL data alone, such as vehicle
+types, cancellation codes, city geography, or platform architecture.
 """.strip()
 
 
@@ -422,6 +425,26 @@ def get_external_market_context(city: str) -> dict[str, Any]:
             "city": city,
             "message": "No bundled market context found for this city.",
         }
+
+    rag_chunks: list[dict[str, Any]] = []
+    try:
+        import rag_service
+        if rag_service.is_rag_configured():
+            candidates = rag_service.retrieve(f"market context for {city}")
+            rag_chunks = [c for c in candidates if c.get("score", 0) >= 0.6]
+    except Exception:
+        pass
+
+    if rag_chunks:
+        return {
+            "layer": "external_context",
+            "city": match["city"],
+            "state": match.get("state"),
+            "region": match.get("region"),
+            "context_signals": rag_chunks,
+            "source": "RAG retrieval from project reference documents.",
+        }
+
     return {
         "layer": "external_context",
         "city": match["city"],
@@ -431,6 +454,20 @@ def get_external_market_context(city: str) -> dict[str, Any]:
         "context_signals": _market_signals(match["city"], match.get("region")),
         "source": "Data/map_cities.json plus deterministic market heuristics; not live web data.",
     }
+
+
+def retrieve_operational_context(query: str) -> dict[str, Any]:
+    """Retrieve relevant operational context from project reference documents using semantic search."""
+    try:
+        import rag_service
+        if not rag_service.is_rag_configured():
+            return {"error": "RAG is not configured. GEMINI_API_KEY is required."}
+        chunks = rag_service.retrieve(query, top_k=4)
+        if not chunks:
+            return {"query": query, "results": [], "message": "No relevant context found."}
+        return {"query": query, "results": chunks}
+    except Exception as exc:
+        return {"error": f"RAG retrieval failed: {type(exc).__name__}: {exc}"}
 
 
 def answer_with_react_agent(
@@ -510,6 +547,7 @@ def _get_tools() -> list[Any]:
         predict_city_demand,
         predict_surge_pressure,
         get_external_market_context,
+        retrieve_operational_context,
     ]
 
 

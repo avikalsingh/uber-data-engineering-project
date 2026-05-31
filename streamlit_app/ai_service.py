@@ -10,6 +10,15 @@ load_dotenv(override=True)
 
 
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+
+# Ordered fallback chain — tried in sequence when a model's free-tier quota is exhausted.
+FALLBACK_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-flash",
+    "gemini-1.5-flash-8b",
+]
 FACT_TABLE_COLUMNS = [
     "ride_id",
     "pickup_city_id",
@@ -144,27 +153,52 @@ def answer_question(
     )
 
 
+def _is_quota_error(exc: Exception) -> bool:
+    """Return True for 429 / free-tier quota exhaustion errors from any Gemini SDK."""
+    msg = str(exc).lower()
+    typename = type(exc).__name__.lower()
+    return (
+        "429" in msg
+        or "quota" in msg
+        or "resource_exhausted" in msg
+        or "resourceexhausted" in typename
+        or "too many requests" in msg
+    )
+
+
 def _call_gemini(messages: list[dict[str, str]], max_tokens: int) -> tuple[bool, str]:
     try:
         from google import genai
         from google.genai import types
-
-        client = genai.Client(api_key=_get_secret("GEMINI_API_KEY"))
-        response = client.models.generate_content(
-            model=get_gemini_model(),
-            contents=_messages_to_prompt(messages),
-            config=types.GenerateContentConfig(
-                max_output_tokens=max_tokens,
-                temperature=0.2,
-                system_instruction=SYSTEM_PROMPT,
-            ),
-        )
-        text = getattr(response, "text", "").strip()
-        return True, text or "Gemini returned an empty response."
     except ImportError:
         return False, "Gemini SDK is not installed. Run pip install -r requirements.txt."
-    except Exception as exc:
-        return False, f"Gemini is unavailable right now: {type(exc).__name__}: {exc}"
+
+    api_key = _get_secret("GEMINI_API_KEY")
+    primary = get_gemini_model()
+    models_to_try = [primary] + [m for m in FALLBACK_MODELS if m != primary]
+
+    last_exc: Exception | None = None
+    for model in models_to_try:
+        try:
+            client = genai.Client(api_key=api_key)
+            response = client.models.generate_content(
+                model=model,
+                contents=_messages_to_prompt(messages),
+                config=types.GenerateContentConfig(
+                    max_output_tokens=max_tokens,
+                    temperature=0.2,
+                    system_instruction=SYSTEM_PROMPT,
+                ),
+            )
+            text = getattr(response, "text", "").strip()
+            return True, text or "Gemini returned an empty response."
+        except Exception as exc:
+            if _is_quota_error(exc) and model != models_to_try[-1]:
+                last_exc = exc
+                continue
+            return False, f"Gemini is unavailable: {type(exc).__name__}: {exc}"
+
+    return False, f"All Gemini models are quota-limited. Last error: {last_exc}"
 
 
 def _messages_to_prompt(messages: list[dict[str, str]]) -> str:

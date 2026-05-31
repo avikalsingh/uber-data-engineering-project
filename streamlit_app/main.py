@@ -75,7 +75,7 @@ try:
 except Exception:
     _chat_live_data = None
 
-# render_agentic_popup_chat()
+render_agentic_popup_chat()
 render_floating_chat(live_data=_chat_live_data)
 
 tab_analytics, tab_control = st.tabs(

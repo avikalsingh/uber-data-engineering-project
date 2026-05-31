@@ -10,6 +10,13 @@ import streamlit as st
 import streamlit.components.v1 as _components
 
 from react_agent_service import answer_with_react_agent, is_react_agent_configured
+from supervisor_service import (
+    answer_with_full_report,
+    answer_with_supervisor,
+    is_supervisor_configured,
+    run_step,
+    synthesize_city_report,
+)
 
 
 # Unique label used to locate the hidden checkbox in the DOM.
@@ -113,124 +120,273 @@ _HIDE_CHECKBOX_CSS = (
 )
 
 
+# Agent badge definitions shared by both dialog modes
+_AGENT_BADGES = [
+    ("Gold", "KPIs &amp; executive metrics"),
+    ("Silver", "Enriched ride signals"),
+    ("ML", "Demand &amp; surge forecasts"),
+    ("Context", "Market reference data"),
+]
+
+_AGENT_BADGE_HTML = (
+    '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">'
+    + "".join(
+        f'<div style="font-size:.65rem;font-weight:700;letter-spacing:.1em;'
+        f'text-transform:uppercase;color:#a78bfa;padding:4px 10px;'
+        f'border:1px solid rgba(124,58,237,.28);border-radius:4px;">'
+        f'<strong>{t[0]}</strong>&nbsp;&nbsp;{t[1]}</div>'
+        for t in _AGENT_BADGES
+    )
+    + "</div>"
+)
+
+_EXAMPLES = [
+    "What's the total revenue in New York?",
+    "Which are the top 5 cities by revenue?",
+    "Give me a silver-layer deep dive for Chicago",
+    "Compare surge pricing between New York and Los Angeles",
+    "Predict demand for Dallas over the next 3 hours",
+    "What is the surge pressure in Las Vegas?",
+    "Add market context for San Diego",
+    "Show me demand metrics for Chicago",
+    "What are peak surge hours?",
+    "Show me the KPI dashboard",
+]
+
+
+def _render_agents_called(agents: list[str]) -> str:
+    """Render a compact routing badge string for the metadata panel."""
+    label_map = {
+        "gold_agent": "Gold",
+        "silver_agent": "Silver",
+        "ml_agent": "ML",
+        "context_agent": "Context",
+        "supervisor": "Supervisor",
+    }
+    return " → ".join(label_map.get(a, a) for a in agents)
+
+
 @st.dialog("AI Operations Analyst", width="large")
 def _agent_dialog() -> None:
-    agent_ready = is_react_agent_configured()
+    supervisor_ready = is_supervisor_configured()
+    react_ready = is_react_agent_configured()
 
-    st.markdown(
-        '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">'
-        + "".join(
-            f'<div style="font-size:.65rem;font-weight:700;letter-spacing:.1em;'
-            f'text-transform:uppercase;color:#a78bfa;padding:4px 10px;'
-            f'border:1px solid rgba(124,58,237,.28);border-radius:4px;">'
-            f'<strong>{t[0]}</strong>&nbsp;&nbsp;{t[1]}</div>'
-            for t in [
-                ("Gold", "KPIs &amp; executive metrics"),
-                ("Silver", "Enriched ride signals"),
-                ("ML", "Demand &amp; surge forecasts"),
-                ("Context", "Market reference data"),
-            ]
-        )
-        + "</div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown(_AGENT_BADGE_HTML, unsafe_allow_html=True)
 
-    if not agent_ready:
-        st.info("Configure GEMINI_API_KEY and Databricks credentials to enable the ReAct agent.")
-        return
+    tab_chat, tab_report = st.tabs(["💬  Chat", "📊  Full City Report"])
 
-    if "react_agent_history" not in st.session_state:
-        st.session_state.react_agent_history = []
+    # ------------------------------------------------------------------ #
+    # Tab 1 — Chat (Supervisor or ReAct)
+    # ------------------------------------------------------------------ #
+    with tab_chat:
+        col_mode, _ = st.columns([2, 3])
+        with col_mode:
+            mode = st.radio(
+                "Agent mode",
+                ["Supervisor", "ReAct"],
+                horizontal=True,
+                key="agent_popup_mode",
+                help="Supervisor: LangGraph multi-agent routing. ReAct: single flat-tool agent.",
+                label_visibility="collapsed",
+            )
 
-    examples = [
-        "What's the total revenue in New York?",
-        "Which are the top 5 cities by revenue?",
-        "Give me a silver-layer deep dive for Chicago",
-        "Compare surge pricing between New York and Los Angeles",
-        "Predict demand for Dallas over the next 3 hours",
-        "What is the surge pressure in Las Vegas?",
-        "Add market context for San Diego",
-        "Show me demand metrics for Chicago",
-        "What are peak surge hours?",
-        "Show me the KPI dashboard",
-    ]
+        use_supervisor = mode == "Supervisor"
 
-    col_ex, col_use, col_clear = st.columns([5, 1.2, 1.2])
-    with col_ex:
-        selected = st.selectbox(
-            "Example questions", [""] + examples,
-            key="agent_popup_example", label_visibility="collapsed",
-        )
-    with col_use:
-        use_clicked = st.button(
-            "Use Example", type="secondary",
-            use_container_width=True, key="agent_popup_use",
-        )
-    with col_clear:
-        if st.button(
-            "Clear Chat", type="secondary",
-            use_container_width=True, key="agent_popup_clear",
-        ):
-            st.session_state.react_agent_history = []
-            st.rerun()
+        if use_supervisor and not supervisor_ready:
+            st.info("Configure GEMINI_API_KEY and Databricks credentials to enable the Supervisor.")
+        elif not use_supervisor and not react_ready:
+            st.info("Configure GEMINI_API_KEY and Databricks credentials to enable the ReAct agent.")
+        else:
+            history_key = "supervisor_history" if use_supervisor else "react_agent_history"
+            if history_key not in st.session_state:
+                st.session_state[history_key] = []
 
-    if use_clicked and selected:
-        st.session_state.agent_popup_prefill = selected
+            col_ex, col_use, col_clear = st.columns([5, 1.2, 1.2])
+            with col_ex:
+                selected = st.selectbox(
+                    "Example questions", [""] + _EXAMPLES,
+                    key="agent_popup_example", label_visibility="collapsed",
+                )
+            with col_use:
+                use_clicked = st.button(
+                    "Use Example", type="secondary",
+                    use_container_width=True, key="agent_popup_use",
+                )
+            with col_clear:
+                if st.button(
+                    "Clear Chat", type="secondary",
+                    use_container_width=True, key="agent_popup_clear",
+                ):
+                    st.session_state[history_key] = []
+                    st.rerun()
 
-    chat_area = st.container(height=380, border=False)
-    with chat_area:
-        if not st.session_state.react_agent_history:
+            if use_clicked and selected:
+                st.session_state.agent_popup_prefill = selected
+
+            chat_area = st.container(height=320, border=False)
+            with chat_area:
+                history = st.session_state[history_key]
+                if not history:
+                    hint = (
+                        "Supervisor routes your question across Gold, Silver, ML, and Context agents."
+                        if use_supervisor
+                        else "Ask about revenue, demand, surge pressure, or market context."
+                    )
+                    st.markdown(
+                        f'<div style="text-align:center;padding:40px 24px;'
+                        f'color:rgba(216,228,240,.35);font-size:.75rem;">{hint}</div>',
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    for msg in history[-14:]:
+                        with st.chat_message(msg["role"]):
+                            st.markdown(msg["content"])
+                            if msg["role"] == "assistant" and msg.get("metadata"):
+                                meta = msg["metadata"]
+                                routed = meta.get("agents_called", [])
+                                label = (
+                                    f"Routed via: {_render_agents_called(routed)}"
+                                    if routed and use_supervisor
+                                    else "Execution details"
+                                )
+                                with st.expander(label):
+                                    st.json(meta)
+
+            prefill = st.session_state.pop("agent_popup_prefill", "")
+            placeholder = (
+                "Ask a question — supervisor routes to the right agent…"
+                if use_supervisor
+                else "Ask about revenue, demand, surge, forecasts…"
+            )
+            question = st.chat_input(placeholder=placeholder, key="agent_popup_input")
+            if not question and prefill:
+                question = prefill
+
+            if question and question.strip():
+                q = question.strip()
+                st.session_state[history_key].append({"role": "user", "content": q})
+                history = st.session_state[history_key]
+                with chat_area:
+                    with st.chat_message("user"):
+                        st.markdown(q)
+                    with st.chat_message("assistant"):
+                        spin = (
+                            "Supervisor routing to sub-agents…"
+                            if use_supervisor
+                            else "Routing to curated tools…"
+                        )
+                        with st.spinner(spin):
+                            result = (
+                                answer_with_supervisor(q, history[:-1])
+                                if use_supervisor
+                                else answer_with_react_agent(q, history[:-1])
+                            )
+                        if result["ok"]:
+                            st.markdown(result["answer"])
+                        else:
+                            st.warning(result["answer"])
+                        if result.get("metadata"):
+                            routed = result["metadata"].get("agents_called", [])
+                            label = (
+                                f"Routed via: {_render_agents_called(routed)}"
+                                if routed and use_supervisor
+                                else "Execution details"
+                            )
+                            with st.expander(label):
+                                st.json(result["metadata"])
+                st.session_state[history_key].append(
+                    {
+                        "role": "assistant",
+                        "content": result["answer"],
+                        "metadata": result.get("metadata", {}),
+                    }
+                )
+                st.rerun()
+
+    # ------------------------------------------------------------------ #
+    # Tab 2 — Full City Report (sequential orchestration)
+    # ------------------------------------------------------------------ #
+    with tab_report:
+        if not supervisor_ready:
+            st.info("Configure GEMINI_API_KEY and Databricks credentials to generate city reports.")
+        else:
             st.markdown(
-                '<div style="text-align:center;padding:48px 24px;'
-                'color:rgba(216,228,240,.35);font-size:.75rem;">'
-                "Ask about revenue, demand, surge pressure, silver-layer operations,"
-                "<br>forecasts, or market context."
-                "</div>",
+                '<p style="font-size:.72rem;color:rgba(216,228,240,.5);margin-bottom:8px;">'
+                "Runs Gold → Silver → ML → Context agents sequentially, then synthesizes a "
+                "full city report. Takes ~30–60 seconds."
+                "</p>",
                 unsafe_allow_html=True,
             )
-        else:
-            for msg in st.session_state.react_agent_history[-14:]:
-                with st.chat_message(msg["role"]):
-                    st.markdown(msg["content"])
-                    if msg["role"] == "assistant" and msg.get("metadata"):
-                        with st.expander("Execution details"):
-                            st.json(msg["metadata"])
 
-    prefill = st.session_state.pop("agent_popup_prefill", "")
-    question = st.chat_input(
-        placeholder="Ask about revenue, demand, surge, forecasts…",
-        key="agent_popup_input",
-    )
-    if not question and prefill:
-        question = prefill
+            col_city, col_btn = st.columns([3, 1])
+            with col_city:
+                city_input = st.text_input(
+                    "City",
+                    placeholder="e.g. New York, Chicago, Las Vegas",
+                    key="report_city_input",
+                    label_visibility="collapsed",
+                )
+            with col_btn:
+                generate = st.button(
+                    "Generate", type="primary",
+                    use_container_width=True, key="report_generate_btn",
+                )
 
-    if question and question.strip():
-        q = question.strip()
-        st.session_state.react_agent_history.append({"role": "user", "content": q})
-        with chat_area:
-            with st.chat_message("user"):
-                st.markdown(q)
-            with st.chat_message("assistant"):
-                with st.spinner("Routing to curated tools…"):
-                    result = answer_with_react_agent(
-                        q,
-                        st.session_state.react_agent_history[:-1],
+            if st.button(
+                "Clear report", type="secondary",
+                use_container_width=False, key="report_clear_btn",
+            ):
+                st.session_state.pop("full_report_result", None)
+                st.rerun()
+
+            # Run sequential orchestration with live step progress
+            if generate and city_input.strip():
+                city = city_input.strip()
+                sections: dict[str, str] = {}
+                started = __import__("time").time()
+
+                _STEPS = [
+                    ("gold",    "Gold layer — KPIs & revenue"),
+                    ("silver",  "Silver layer — operational deep dive"),
+                    ("ml",      "ML forecasts — demand & surge"),
+                    ("context", "Context — market archetype & RAG"),
+                ]
+
+                with st.status(
+                    f"Generating full report for **{city}**…", expanded=True
+                ) as status_widget:
+                    for step_key, step_label in _STEPS:
+                        st.write(f"Querying {step_label}…")
+                        sections[step_key] = run_step(step_key, city)
+                        st.write(f"✓ {step_label} complete")
+
+                    st.write("Synthesizing final report…")
+                    report_text = synthesize_city_report(city, sections)
+                    elapsed = round(__import__("time").time() - started, 1)
+                    status_widget.update(
+                        label=f"Report for {city} ready — {elapsed}s",
+                        state="complete",
+                        expanded=False,
                     )
-                if result["ok"]:
-                    st.markdown(result["answer"])
-                else:
-                    st.warning(result["answer"])
-                if result.get("metadata"):
-                    with st.expander("Execution details"):
-                        st.json(result["metadata"])
-        st.session_state.react_agent_history.append(
-            {
-                "role": "assistant",
-                "content": result["answer"],
-                "metadata": result.get("metadata", {}),
-            }
-        )
-        st.rerun()
+
+                st.session_state.full_report_result = {
+                    "city": city,
+                    "report": report_text,
+                    "elapsed": elapsed,
+                }
+
+            # Render cached report
+            cached = st.session_state.get("full_report_result")
+            if cached:
+                st.divider()
+                st.markdown(cached["report"])
+                with st.expander("Report metadata"):
+                    st.json({
+                        "city": cached["city"],
+                        "mode": "Sequential Full-City Report",
+                        "agents_called": ["gold_agent", "silver_agent", "ml_agent", "context_agent", "synthesizer"],
+                        "execution_time_seconds": cached.get("elapsed"),
+                    })
 
 
 def _on_agent_trigger_change() -> None:

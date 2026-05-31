@@ -18,3 +18,10 @@ not_for_you/
 # Local databases
 *.db
 *.sqlite
+
+# Claude
+CLAUDE.md
+.claude/
+
+# Generated / cache files
+streamlit_app/.rag_cache.json
