@@ -10,7 +10,6 @@
 ![Databricks](https://img.shields.io/badge/Databricks-DLT-FF3621?style=flat-square&logo=databricks&logoColor=white)
 
 🔗 **Live Demo:** https://uber-data-engineering-project.streamlit.app
-📁 **GitHub:** https://github.com/avikalsingh/uber-data-engineering-project
 
 ---
 
