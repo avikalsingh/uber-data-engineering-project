@@ -2,42 +2,53 @@ from databricks import sql
 from dotenv import load_dotenv
 load_dotenv()
 import os
+import time
 import streamlit as st
 import requests
 from config_utils import get_secret
 
 
-def _ensure_warehouse_running() -> None:
-    """Start the SQL warehouse if it is stopped. Called once on app load."""
+def _ensure_warehouse_running(poll_timeout: int = 60, poll_interval: int = 5) -> str:
+    """Start the SQL warehouse if it is stopped, and block until it's RUNNING
+    (or until poll_timeout elapses). Called once on app load.
+
+    Returns one of: "running", "starting_timeout", "unknown" (status check failed).
+    """
     host        = _get_secret("DATABRICKS_HOST")
     token       = _get_secret("DATABRICKS_TOKEN")
     http_path   = _get_secret("DATABRICKS_HTTP_PATH")
-    
+
     # Extract warehouse ID from http_path
     # e.g. /sql/1.0/warehouses/c6f1ccf7eaf58c6c → c6f1ccf7eaf58c6c
     warehouse_id = http_path.strip("/").split("/")[-1]
-    
+
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
     }
-    
-    # Check current state
-    resp = requests.get(
-        f"{host}/api/2.0/sql/warehouses/{warehouse_id}",
-        headers=headers
-    )
+
+    status_url = f"{host}/api/2.0/sql/warehouses/{warehouse_id}"
+
+    resp = requests.get(status_url, headers=headers)
     if resp.status_code != 200:
-        return  # fail silently — don't crash the app
-    
+        return "unknown"
+
     state = resp.json().get("state", "")
-    
+
     if state in ("STOPPED", "STOPPING"):
-        # Start it — this returns immediately, warehouse takes ~30s to be ready
-        requests.post(
-            f"{host}/api/2.0/sql/warehouses/{warehouse_id}/start",
-            headers=headers
-        )
+        requests.post(f"{host}/api/2.0/sql/warehouses/{warehouse_id}/start", headers=headers)
+        state = "STARTING"
+
+    elapsed = 0
+    while state not in ("RUNNING",) and elapsed < poll_timeout:
+        time.sleep(poll_interval)
+        elapsed += poll_interval
+        resp = requests.get(status_url, headers=headers)
+        if resp.status_code != 200:
+            return "unknown"
+        state = resp.json().get("state", "")
+
+    return "running" if state == "RUNNING" else "starting_timeout"
 
 # Module-level connection — reused across queries so we don't pay the
 # Databricks HTTP handshake + auth cost on every single query call.

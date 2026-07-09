@@ -37,6 +37,7 @@ SPACING = {
 FONTS = {
     "sans": "'IBM Plex Mono', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     "mono": "'IBM Plex Mono', monospace",
+    "display": "'Press Start 2P', 'IBM Plex Mono', monospace",
 }
 
 SHADOWS = {
@@ -68,7 +69,7 @@ def inject_design_system() -> None:
     st.markdown(
         f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=Press+Start+2P&display=swap');
 
 :root {{
     --bg-dark: {COLORS['bg_dark']};
@@ -87,6 +88,7 @@ def inject_design_system() -> None:
     --border-secondary: {COLORS['border_secondary']};
     --font-sans: {FONTS['sans']};
     --font-mono: {FONTS['mono']};
+    --font-display: {FONTS['display']};
     /* Short-form aliases matching mission-control.html */
     --a: {COLORS['accent_cyan']};
     --bg: {COLORS['bg_dark']};
@@ -193,12 +195,14 @@ header[data-testid="stHeader"] {{
 }}
 
 .mission-title {{
-    margin-top: 3px;
-    font-family: var(--font-sans);
-    font-size: 1.05rem;
-    font-weight: 800;
+    margin-top: 6px;
+    font-family: var(--font-display);
+    font-size: 0.95rem;
+    font-weight: 400;
     color: var(--text-primary);
-    letter-spacing: 0;
+    letter-spacing: 0.03em;
+    line-height: 1.4;
+    text-shadow: 0 0 18px rgba(0,229,195,0.25);
 }}
 
 .mission-subtitle {{
@@ -622,10 +626,10 @@ def render_app_header(eventhub_live: bool, ai_ready: bool) -> None:
     <div class="mission-brand">
         <div class="mission-logo">UB</div>
         <div>
-            <div class="mission-kicker">Uber Real-Time Data Engineering</div>
-            <div class="mission-title">Mission Control</div>
+            <div class="mission-kicker">Uber AI</div>
+            <div class="mission-title">Neural Ops</div>
         </div>
-        <div class="mission-subtitle">Delta Lake · DLT Pipeline · Azure EventHub</div>
+        <div class="mission-subtitle">AI Agents · Delta Lake · DLT Pipeline · Azure EventHub</div>
     </div>
     <div class="mission-status">
         <div class="mission-chip {eventhub_class}"><span class="status-dot"></span>{eventhub_label}</div>

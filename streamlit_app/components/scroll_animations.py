@@ -5,7 +5,6 @@ Streamlit data-testid selectors plus .kc/.shd classes. Idempotent — re-running
 """
 
 import streamlit as st
-import streamlit.components.v1 as _components
 
 _INJECTOR = """<!DOCTYPE html>
 <html>
@@ -193,4 +192,4 @@ _INJECTOR = """<!DOCTYPE html>
 
 def inject_scroll_animations() -> None:
     """Inject scroll-triggered animations targeting the parent Streamlit DOM."""
-    _components.html(_INJECTOR, height=0)
+    st.iframe(_INJECTOR, height=1)

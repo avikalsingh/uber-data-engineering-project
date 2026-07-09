@@ -29,7 +29,7 @@ from design_tokens import inject_design_system, render_app_header
 
 
 st.set_page_config(
-    page_title="Uber DE - Mission Control",
+    page_title="Uber AI - Neural Ops",
     page_icon="UB",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -43,7 +43,18 @@ if "warehouse_started" not in st.session_state:
     try:
         from db import _ensure_warehouse_running
 
-        _ensure_warehouse_running()
+        with st.spinner("Starting Databricks SQL warehouse..."):
+            status = _ensure_warehouse_running()
+        if status == "starting_timeout":
+            st.warning(
+                "The SQL warehouse is still starting up. Data may take a bit "
+                "longer to load — reload the page in a few seconds if a query fails."
+            )
+        elif status == "unknown":
+            st.warning(
+                "Could not confirm SQL warehouse status. If data fails to load, "
+                "check Databricks → SQL Warehouses and start it manually."
+            )
     except Exception:
         pass
 

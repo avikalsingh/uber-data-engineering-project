@@ -7,7 +7,6 @@ rerun with the new checkbox value, which opens the @st.dialog.
 """
 
 import streamlit as st
-import streamlit.components.v1 as _components
 
 from react_agent_service import answer_with_react_agent, is_react_agent_configured
 from supervisor_service import (
@@ -398,7 +397,7 @@ def _on_agent_trigger_change() -> None:
 
 def render_agentic_popup_chat() -> None:
     # 1. Inject the floating purple FAB into the parent document
-    _components.html(_FAB_INJECTOR, height=0)
+    st.iframe(_FAB_INJECTOR, height=1)
 
     # 2. CSS to keep the checkbox off-screen while it remains in the DOM
     st.markdown(_HIDE_CHECKBOX_CSS, unsafe_allow_html=True)
